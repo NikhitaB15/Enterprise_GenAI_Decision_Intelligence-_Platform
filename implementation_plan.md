@@ -1,7 +1,5 @@
 # Implementation Plan - Enterprise GenAI Decision Intelligence Platform
 
-This project aims to build a sophisticated "Decision Intelligence" platform that bridges the gap between raw data/ML insights and actionable business decisions using GenAI reasoning.
-
 ## 🏗 Architecture Overview
 
 1.  **Data Layer**: BigQuery/SQL (Simulated via SQLite for local dev) + Document Store.
