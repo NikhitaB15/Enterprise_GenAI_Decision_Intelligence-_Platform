@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pandas
+numpy
+pydantic
+pydantic-settings
+langchain
+langchain-openai
+langchain-community
+chromadb
+sqlite3
+python-dotenv
+openai
