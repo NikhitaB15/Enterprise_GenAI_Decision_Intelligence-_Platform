@@ -41,7 +41,10 @@ prompt = ChatPromptTemplate.from_messages([
     - Second, query the SQL database if you need specific numbers or region-level data.
     - Third, cross-reference with company policies to provide actionable recommendations.
     
-    Format your response with:
+    IMPORTANT: Use the provided tools to get information. Do NOT try to format tool calls yourself using tags like <function>. 
+    The system will handle the tool call format. Just output the tool usage.
+    
+    Format your final response with:
     ### Analysis
     ### Root Cause
     ### Recommended Actions
@@ -70,9 +73,17 @@ async def ask_question(query: Query):
         if not os.getenv("GROQ_API_KEY"):
             return {"answer": "### Error: Groq API Key not configured.\n\nPlease set your `GROQ_API_KEY` in the `.env` file to enable the GenAI Reasoning Layer."}
         print("Processing query:", query.message)    
-        result = agent_executor.invoke({"input": query.message})
-        return {"answer": result["output"]}
+        try:
+            result = agent_executor.invoke({"input": query.message})
+            return {"answer": result["output"]}
+        except Exception as inner_e:
+            print(f"Error during agent execution: {str(inner_e)}")
+            # If it's a tool-calling error specifically, provide a cleaner message
+            if "BadRequestError" in str(inner_e) or "400" in str(inner_e):
+                 return {"answer": "### Error: Reasoning Engine Failure\n\nThe AI model had trouble formatting the data request correctly. This usually happens if the search query is too complex. Please try rephrasing your question."}
+            raise inner_e
     except Exception as e:
+        print(f"Global Exception in /ask: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
