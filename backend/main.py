@@ -3,8 +3,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_groq import ChatGroq
+from langchain.agents import create_tool_calling_agent
+from langchain.agents import AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from .tools import query_db, get_ml_insights, get_company_policy
 
@@ -13,8 +14,17 @@ load_dotenv()
 app = FastAPI(title="Enterprise GenAI Decision Intelligence API")
 
 # Define the Reasoning Engine
-llm = ChatOpenAI(model="gpt-4-turbo-preview", temperature=0)
+groq_api_key = os.getenv("GROQ_API_KEY")
 
+if not groq_api_key:
+    print("WARNING: GROQ_API_KEY not found in environment variables.")
+
+# Use native ChatGroq implementation
+llm = ChatGroq(
+    groq_api_key=groq_api_key,
+    model_name="llama-3.3-70b-versatile",
+    temperature=0
+)
 tools = [query_db, get_ml_insights, get_company_policy]
 
 prompt = ChatPromptTemplate.from_messages([
@@ -40,7 +50,7 @@ prompt = ChatPromptTemplate.from_messages([
     MessagesPlaceholder(variable_name="agent_scratchpad"),
 ])
 
-agent = create_openai_tools_agent(llm, tools, prompt)
+agent = create_tool_calling_agent(llm, tools, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 class Query(BaseModel):
@@ -57,9 +67,9 @@ async def root():
 async def ask_question(query: Query):
     try:
         # Check for API key
-        if not os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") == "your_openai_api_key_here":
-            return {"answer": "### Error: OpenAI API Key not configured.\n\nPlease set your `OPENAI_API_KEY` in the `.env` file to enable the GenAI Reasoning Layer."}
-            
+        if not os.getenv("GROQ_API_KEY"):
+            return {"answer": "### Error: Groq API Key not configured.\n\nPlease set your `GROQ_API_KEY` in the `.env` file to enable the GenAI Reasoning Layer."}
+        print("Processing query:", query.message)    
         result = agent_executor.invoke({"input": query.message})
         return {"answer": result["output"]}
     except Exception as e:

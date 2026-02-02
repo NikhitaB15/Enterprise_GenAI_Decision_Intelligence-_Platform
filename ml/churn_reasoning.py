@@ -2,24 +2,41 @@ import sqlite3
 import pandas as pd
 import json
 import os
+from sqlalchemy import create_engine
+from dotenv import load_dotenv
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 
+# Load environment variables
+load_dotenv()
+
 # Paths
 BASE_DIR = os.path.dirname(__file__)
 DATA_DIR = os.path.join(BASE_DIR, '..', 'data')
-DB_PATH = os.path.join(DATA_DIR, 'enterprise_data.db')
+LOCAL_DB_PATH = os.path.join(DATA_DIR, 'enterprise_data.db')
 INSIGHTS_PATH = os.path.join(DATA_DIR, 'ml_insights.json')
 
-def analyze_churn():
-    if not os.path.exists(DB_PATH):
-        print("Database not found. Run data_generator.py first.")
-        return
+def get_db_engine():
+    """Returns the database engine based on environment configuration."""
+    db_url = os.getenv('DATABASE_URL')
+    if db_url and db_url.startswith('postgres'):
+        if db_url.startswith('postgres://'):
+            db_url = db_url.replace('postgres://', 'postgresql://', 1)
+        print("Connecting to External Database (Supabase)...")
+        return create_engine(db_url)
+    else:
+        print(f"Connecting to Local SQLite: {LOCAL_DB_PATH}")
+        return create_engine(f'sqlite:///{LOCAL_DB_PATH}')
 
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql('SELECT * FROM customer_metrics', conn)
-    conn.close()
+def analyze_churn():
+    engine = get_db_engine()
+    
+    try:
+        df = pd.read_sql('SELECT * FROM customer_metrics', engine)
+    except Exception as e:
+        print(f"Error reading from database: {e}")
+        return
 
     print(f"Loaded {len(df)} rows for training.")
 
@@ -68,9 +85,17 @@ def analyze_churn():
     df_high_risk = df.loc[high_risk_customers.index]
     
     # Find most common attribute in high risk group
-    top_contract = df_high_risk['Contract'].mode()[0]
-    top_internet = df_high_risk['InternetService'].mode()[0]
-    avg_monthly = df_high_risk['MonthlyCharges'].mean()
+    # Handle empty DataFrames gracefully
+    if len(df_high_risk) == 0:
+        top_contract = "Unknown"
+        top_internet = "Unknown"
+        avg_monthly = 0.0
+    else:
+        contract_mode = df_high_risk['Contract'].mode()
+        internet_mode = df_high_risk['InternetService'].mode()
+        top_contract = contract_mode[0] if len(contract_mode) > 0 else "Unknown"
+        top_internet = internet_mode[0] if len(internet_mode) > 0 else "Unknown"
+        avg_monthly = df_high_risk['MonthlyCharges'].mean()
 
     insights = {
         "summary": {

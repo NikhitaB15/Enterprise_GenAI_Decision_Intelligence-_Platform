@@ -4,11 +4,12 @@ pandas
 numpy
 pydantic
 pydantic-settings
-langchain
-langchain-openai
-langchain-community
+langchain==0.1.20
+langchain-community==0.0.38
+langchain-groq
+sentence-transformers
 chromadb
-sqlite3
 python-dotenv
-openai
 scikit-learn
+sqlalchemy
+psycopg2-binary

@@ -2,10 +2,30 @@ import sqlite3
 import pandas as pd
 import json
 import os
+from sqlalchemy import create_engine
+from dotenv import load_dotenv
 from langchain.tools import tool
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'enterprise_data.db')
-INSIGHTS_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'ml_insights.json')
+# Load env variables
+load_dotenv()
+
+# Paths
+BASE_DIR = os.path.dirname(__file__)
+LOCAL_DB_PATH = os.path.join(BASE_DIR, '..', 'data', 'enterprise_data.db')
+INSIGHTS_PATH = os.path.join(BASE_DIR, '..', 'data', 'ml_insights.json')
+VECTOR_DB_DIR = os.path.join(BASE_DIR, '..', 'data', 'vector_db')
+
+def get_db_engine():
+    """Returns the database engine based on environment configuration."""
+    db_url = os.getenv('DATABASE_URL')
+    if db_url and db_url.startswith('postgres'):
+        if db_url.startswith('postgres://'):
+            db_url = db_url.replace('postgres://', 'postgresql://', 1)
+        return create_engine(db_url)
+    else:
+        return create_engine(f'sqlite:///{LOCAL_DB_PATH}')
 
 @tool
 def query_db(query: str) -> str:
@@ -17,9 +37,8 @@ def query_db(query: str) -> str:
     StreamingTV, StreamingMovies, Contract, PaperlessBilling, PaymentMethod, MonthlyCharges, TotalCharges, Churn.
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql(query, conn)
-        conn.close()
+        engine = get_db_engine()
+        df = pd.read_sql(query, engine)
         return df.to_json(orient='records')
     except Exception as e:
         return f"Error executing query: {str(e)}"
@@ -36,12 +55,26 @@ def get_ml_insights() -> str:
         return f"Error reading insights: {str(e)}"
 
 @tool
-def get_company_policy(topic: str) -> str:
-    """Search for company policies related to a specific topic (e.g., 'pricing', 'retention')."""
-    # Mock policies for the Telco use case
-    policies = {
-        "pricing": "Standard Fiber Optic pricing is $70-100/mo. New customers get $10 off for 12 months.",
-        "retention": "High-risk customers with tenure > 2 years should be offered a 15% loyalty discount on 1-year contracts.",
-        "support": "Tech Support is free for Fiber customers. DSL customers pay $5/mo unless part of a bundle."
-    }
-    return policies.get(topic.lower(), "No specific policy found for this topic.")
+def get_company_policy(query: str) -> str:
+    """Search (RAG) for company policies related to a specific topic (e.g., 'pricing', 'retention') using the Vector Database.
+    Always use this tool if the user asks about rules, pricing, or retention guidelines.
+    """
+    try:
+        if not os.path.exists(VECTOR_DB_DIR):
+            return "Vector database not found. Please run 'backend/ingest_knowledge.py' first."
+        
+        dir_contents = os.listdir(VECTOR_DB_DIR)
+        if not dir_contents:
+            return "Vector database is empty. Please run 'backend/ingest_knowledge.py' first."
+
+        embedding_function = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        vectorstore = Chroma(persist_directory=VECTOR_DB_DIR, embedding_function=embedding_function)
+        
+        results = vectorstore.similarity_search(query, k=2)
+        if results:
+            return "\n\n".join([doc.page_content for doc in results])
+        else:
+            return "No relevant policy documents found."
+            
+    except Exception as e:
+        return f"Error searching policy documents: {str(e)}"
